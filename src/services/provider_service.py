@@ -29,6 +29,20 @@ class ProviderService:
             return (PlannerMode.deterministic,)
         return (PlannerMode.deterministic, PlannerMode.llm)
 
+    def available_provider_configurations(self) -> tuple[PlannerConfiguration, ...]:
+        if PlannerMode.llm not in self.allowed_planner_modes():
+            return ()
+        return tuple(
+            self.configure(
+                StartTaskRequest(
+                    user_request="",
+                    planner_mode=PlannerMode.llm,
+                    provider=provider,
+                )
+            )
+            for provider in ProviderName
+        )
+
     def configure(self, request: StartTaskRequest) -> PlannerConfiguration:
         if request.planner_mode not in self.allowed_planner_modes():
             raise InvalidTaskRequest("Demo Mode supports deterministic planning only")
