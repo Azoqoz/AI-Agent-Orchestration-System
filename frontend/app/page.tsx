@@ -50,7 +50,7 @@ type ScoreVisualStatus =
   | "running"
   | "failed"
   | "skipped";
-type EvidenceKind = "success" | "refund" | "sla" | "priority" | "generic";
+type EvidenceKind = "success" | "refund" | "sla" | "priority" | "neutral";
 
 interface OperationalError {
   code: string | null;
@@ -155,16 +155,74 @@ function primitiveEvidenceValue(value: unknown): string | null {
   return null;
 }
 
-function evidenceKindForKey(key: string): EvidenceKind {
-  if (key.includes("eligible") || key.includes("eligibility")) return "success";
-  if (key.includes("refund") || key.includes("amount")) return "refund";
-  if (key.includes("sla") || key.includes("hours") || key.includes("time")) {
+function valueRepresentsPositiveState(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value !== "string") return false;
+
+  return new Set([
+    "approved",
+    "complete",
+    "completed",
+    "eligible",
+    "pass",
+    "passed",
+    "success",
+    "successful",
+    "succeeded",
+    "true",
+    "yes",
+  ]).has(value.trim().toLowerCase());
+}
+
+function valueRepresentsWarningState(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value !== "string") return false;
+
+  return new Set([
+    "at risk",
+    "breach",
+    "breached",
+    "critical",
+    "elevated",
+    "high",
+    "severe",
+    "urgent",
+    "warning",
+  ]).has(value.trim().toLowerCase().replaceAll("_", " "));
+}
+
+function evidenceKindForField(key: string, value: unknown): EvidenceKind {
+  const normalizedKey = key.toLowerCase();
+
+  if (
+    ["eligible", "eligibility", "approved", "success"].some((concept) =>
+      normalizedKey.includes(concept),
+    )
+  ) {
+    return valueRepresentsPositiveState(value) ? "success" : "neutral";
+  }
+  if (
+    ["refund", "amount", "total", "price", "cost", "fee"].some((concept) =>
+      normalizedKey.includes(concept),
+    )
+  ) {
+    return "refund";
+  }
+  if (
+    ["priority", "risk", "severity", "warning"].some((concept) =>
+      normalizedKey.includes(concept),
+    )
+  ) {
+    return valueRepresentsWarningState(value) ? "priority" : "neutral";
+  }
+  if (
+    ["sla", "remaining", "deadline", "duration"].some((concept) =>
+      normalizedKey.includes(concept),
+    )
+  ) {
     return "sla";
   }
-  if (key.includes("priority") || key.includes("risk") || key.includes("urgency")) {
-    return "priority";
-  }
-  return "generic";
+  return "neutral";
 }
 
 function evidenceFromResults(results: ToolExecutionResult[]): EvidenceMetric[] {
@@ -190,7 +248,7 @@ function evidenceFromResults(results: ToolExecutionResult[]): EvidenceMetric[] {
         key,
         label: formatIdentifier(key),
         value,
-        kind: evidenceKindForKey(key),
+        kind: evidenceKindForField(key, rawValue),
       });
     }
   }

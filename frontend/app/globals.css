@@ -1147,6 +1147,15 @@ select:focus-visible {
 .evidence-strip div.evidence-metric-priority dt { color: var(--priority-accent); }
 .evidence-strip div.evidence-metric-priority dd { color: var(--priority-dark); }
 
+.evidence-strip div.evidence-metric-neutral {
+  background: var(--approval-soft);
+  border-right-color: var(--rule);
+  box-shadow: none;
+}
+
+.evidence-strip div.evidence-metric-neutral dt { color: var(--ink-muted); }
+.evidence-strip div.evidence-metric-neutral dd { color: var(--ink); }
+
 .task-result {
   background: var(--paper-raised);
   border-bottom: 1px solid var(--rule-strong);
