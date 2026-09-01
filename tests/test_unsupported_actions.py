@@ -19,6 +19,10 @@ def assert_unsupported(state, action):
     assert state["tool_results"] == {}
     assert (state.get("plan") or {}).get("steps", []) == []
     assert state["fallback_used"] is False
+    assert state["approval_status"] is None
+    assert state["current_step_id"] is None
+    assert state["generated_report_path"] is None
+    assert state["customer_response"] is None
 
 
 def test_delete_customer_is_unsupported_and_does_not_delete(orchestrator):
@@ -46,6 +50,113 @@ def test_send_email_is_unsupported_before_llm_or_fallback(orchestrator, monkeypa
 def test_execute_refund_is_an_unsupported_real_world_action(orchestrator):
     state = orchestrator.start("Execute the refund for CASE-220.")
     assert_unsupported(state, "execute refund")
+
+
+def test_amount_refund_and_confirmation_is_blocked_before_any_tool_execution(
+    orchestrator,
+    monkeypatch,
+):
+    request = "Execute a $200 refund for customer CUST-104 and send them a confirmation message."
+    customer_before = orchestrator.repo.one("customers", "CUST-104")
+
+    def unexpected_execution(*args, **kwargs):
+        pytest.fail("Unsupported requests must be blocked before tool execution")
+
+    monkeypatch.setattr(orchestrator.registry, "execute", unexpected_execution)
+    state = orchestrator.start(request)
+
+    assert_unsupported(state, "execute refund")
+    assert set(state["unsupported_actions"]) == {
+        "execute refund",
+        "send customer message",
+    }
+    assert orchestrator.repo.one("customers", "CUST-104") == customer_before
+
+    persisted = orchestrator.repo.task_detail(state["task_id"])
+    assert persisted is not None
+    assert persisted["status"] == "failed"
+    assert persisted["steps"] == []
+    assert persisted["approvals"] == []
+    assert persisted["state"]["failure_kind"] == "unsupported_action"
+    assert persisted["state"]["tool_results"] == {}
+
+    history = orchestrator.repo.search_tasks(task_id=state["task_id"])
+    assert len(history) == 1
+    assert history[0]["status"] == "failed"
+    assert history[0]["user_request"] == request
+    assert history[0]["tools_used"] == 0
+
+
+@pytest.mark.parametrize(
+    "task_text",
+    [
+        "Execute a refund for CASE-220.",
+        "Process the refund for CASE-220.",
+        "Issue the refund for CASE-220.",
+    ],
+)
+def test_external_refund_verbs_are_blocked(orchestrator, task_text):
+    state = orchestrator.start(task_text)
+
+    assert_unsupported(state, "execute refund")
+
+
+def test_send_confirmation_message_is_blocked(orchestrator):
+    state = orchestrator.start("Send the customer a confirmation message for CASE-220.")
+
+    assert_unsupported(state, "send customer message")
+
+
+def test_mixed_safe_and_unsupported_work_is_rejected_as_a_whole(orchestrator):
+    state = orchestrator.start(
+        "Review CASE-220, check eligibility, calculate the refund, and send the customer a confirmation message."
+    )
+
+    assert_unsupported(state, "send customer message")
+    assert state["tool_results"] == {}
+
+
+@pytest.mark.parametrize(
+    "task_text",
+    [
+        "Calculate the refund amount for CASE-220.",
+        "Recommend a refund amount for CASE-220.",
+    ],
+)
+def test_calculate_and_recommend_refund_remain_supported(orchestrator, task_text):
+    state = orchestrator.start(task_text)
+
+    assert state["status"] == "completed"
+    assert state["failure_kind"] is None
+    assert state["unsupported_actions"] == []
+    assert "refund_calculator" in state["tool_results"]
+
+
+@pytest.mark.parametrize(
+    "task_text",
+    [
+        "Draft a customer response for CASE-220.",
+        "Prepare a customer response for CASE-220.",
+    ],
+)
+def test_draft_and_prepare_customer_response_remain_supported(orchestrator, task_text):
+    state = orchestrator.start(task_text)
+
+    assert state["status"] == "completed"
+    assert state["failure_kind"] is None
+    assert state["unsupported_actions"] == []
+    assert "generate_customer_response" in state["tool_results"]
+
+
+def test_safe_refund_review_and_customer_response_remains_supported(orchestrator):
+    state = orchestrator.start(
+        "Review CASE-220, check eligibility, calculate the refund, and prepare a customer response."
+    )
+
+    assert state["status"] == "waiting_for_approval"
+    assert state["failure_kind"] is None
+    assert state["unsupported_actions"] == []
+    assert "refund_calculator" in state["tool_results"]
 
 
 @pytest.mark.parametrize(("task_text", "action"), [
