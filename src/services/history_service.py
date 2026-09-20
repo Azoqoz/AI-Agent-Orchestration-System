@@ -11,17 +11,21 @@ from src.services.contracts import (
     TaskSummary,
 )
 from src.services.task_service import build_task_detail
+from src.services.demo import DEMO_MAX_HISTORY_LIMIT
 
 
 class HistoryService:
     """Typed read facade over the existing SQLite repository."""
 
-    def __init__(self, repo: Repository) -> None:
+    def __init__(self, repo: Repository, app_mode: str = "local") -> None:
         self.repo = repo
+        self.app_mode = app_mode
 
     def search_tasks(self, query: TaskHistoryQuery | None = None) -> list[TaskSummary]:
         query = query or TaskHistoryQuery()
         filters = query.model_dump(mode="json", exclude_none=True)
+        if self.app_mode == "demo":
+            filters["limit"] = min(int(filters.get("limit", 10)), DEMO_MAX_HISTORY_LIMIT)
         rows = self.repo.search_tasks(**filters)
         return [
             TaskSummary(

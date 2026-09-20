@@ -29,6 +29,7 @@ from src.services.errors import (
     TaskNotFound,
     WorkflowExecutionError,
 )
+from src.services.demo import DEMO_MAX_REQUEST_LENGTH, DEMO_MAX_TASKS_PER_SESSION
 from src.services.provider_service import ProviderService
 
 
@@ -211,6 +212,17 @@ class TaskService:
         self.provider_service = provider_service or ProviderService(orchestrator.app_mode)
 
     def start_task(self, request: StartTaskRequest, *, api_key: str | None = None) -> TaskDetail:
+        if self.orchestrator.app_mode == "demo":
+            if api_key:
+                raise InvalidTaskRequest("Demo Mode does not accept provider API keys")
+            if len(request.user_request) > DEMO_MAX_REQUEST_LENGTH:
+                raise InvalidTaskRequest(
+                    f"Demo Mode requests are limited to {DEMO_MAX_REQUEST_LENGTH} characters"
+                )
+            if self.repo.count_tasks() >= DEMO_MAX_TASKS_PER_SESSION:
+                raise InvalidTaskRequest(
+                    f"Demo Mode is limited to {DEMO_MAX_TASKS_PER_SESSION} tasks per session"
+                )
         self.provider_service.configure(request)
         try:
             state = self.orchestrator.start(

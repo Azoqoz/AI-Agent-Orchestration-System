@@ -24,6 +24,21 @@ class ProviderName(str, Enum):
     ollama = "ollama"
 
 
+class GuidedDemoTask(ContractModel):
+    id: str
+    title: str
+    user_request: str
+    expected_tools: list[str] = Field(default_factory=list)
+    demonstrates_approval: bool = False
+    expected_status: Literal["completed", "waiting_for_approval", "failed"]
+
+
+class HistoryCapability(ContractModel):
+    scope: Literal["demo_session", "persistent_local"]
+    max_results: int = Field(ge=1, le=50)
+    retention_hours: int | None = Field(default=None, ge=1)
+
+
 class WorkflowStatus(str, Enum):
     received = "received"
     plan_generated = "plan_generated"

@@ -40,6 +40,12 @@ from src.services import (
     WorkflowExecutionError,
     WorkflowStatus,
 )
+from src.services.contracts import GuidedDemoTask, HistoryCapability
+from src.services.demo import (
+    DEMO_MAX_HISTORY_LIMIT,
+    DEMO_RETENTION_HOURS,
+    GUIDED_DEMO_TASKS,
+)
 
 
 DEFAULT_CORS_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000")
@@ -87,7 +93,7 @@ def create_app() -> FastAPI:
         allow_origins=list(cors.allowed_origins),
         allow_credentials=cors.allow_credentials,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "X-Provider-API-Key"],
+        allow_headers=["Content-Type", "X-Demo-Session-ID", "X-Provider-API-Key"],
     )
 
     @application.exception_handler(ServiceError)
@@ -129,10 +135,31 @@ def create_app() -> FastAPI:
             )
             for name in sorted(registry.names())
         ]
+        is_demo = services.providers.app_mode == "demo"
         return CapabilitiesResponse(
             app_mode=services.providers.app_mode,
+            demo_mode_available=is_demo,
+            free_form_task_policy=("supported_fictional_data" if is_demo else "full_supported_workflows"),
+            guided_demo_tasks=[
+                GuidedDemoTask(
+                    id=item.id,
+                    title=item.title,
+                    user_request=item.user_request,
+                    expected_tools=list(item.expected_tools),
+                    demonstrates_approval=item.demonstrates_approval,
+                    expected_status=item.expected_status,
+                )
+                for item in GUIDED_DEMO_TASKS
+            ] if is_demo else [],
             planner_modes=list(services.providers.allowed_planner_modes()),
             providers=provider_capabilities,
+            provider_controls_available=not is_demo,
+            provider_api_key_allowed=not is_demo,
+            history=HistoryCapability(
+                scope="demo_session" if is_demo else "persistent_local",
+                max_results=DEMO_MAX_HISTORY_LIMIT if is_demo else 50,
+                retention_hours=DEMO_RETENTION_HOURS if is_demo else None,
+            ),
             tools=tools,
             approval_required_tools=[tool.name for tool in tools if tool.requires_approval],
         )

@@ -46,6 +46,10 @@ class ProviderService:
     def configure(self, request: StartTaskRequest) -> PlannerConfiguration:
         if request.planner_mode not in self.allowed_planner_modes():
             raise InvalidTaskRequest("Demo Mode supports deterministic planning only")
+        if self.app_mode == "demo" and request.provider is not None:
+            raise InvalidTaskRequest("Demo Mode does not allow provider selection")
+        if self.app_mode == "demo" and request.model is not None:
+            raise InvalidTaskRequest("Demo Mode does not allow model selection")
         if request.planner_mode == PlannerMode.deterministic:
             return PlannerConfiguration(
                 app_mode=self.app_mode,

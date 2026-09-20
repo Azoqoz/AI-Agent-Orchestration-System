@@ -13,10 +13,12 @@ from src.tools.registry import build_registry
 
 
 class Orchestrator:
-    def __init__(self, db: Database | None = None, app_mode: str = APP_MODE) -> None:
+    def __init__(self, db: Database | None = None, app_mode: str = APP_MODE, session_id: str | None = None) -> None:
         self.app_mode = normalize_app_mode(app_mode)
         self.db = db or Database(); seed_database(self.db)
-        self.repo = Repository(self.db); self.registry = build_registry(self.db); self.graph = WorkflowGraph(self.registry, self.repo)
+        self.repo = Repository(self.db, session_id=session_id)
+        self.registry = build_registry(self.db, self.repo)
+        self.graph = WorkflowGraph(self.registry, self.repo)
 
     def start(self, user_request: str, planner_mode: str = "deterministic", provider: str | None = None, api_key: str | None = None, model: str | None = None) -> dict[str, Any]:
         if planner_mode not in {"deterministic", "llm"}: raise ValueError("Invalid planner mode")

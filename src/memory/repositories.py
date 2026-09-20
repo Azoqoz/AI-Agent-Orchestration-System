@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from src.memory.database import Database
@@ -12,8 +12,24 @@ def now_iso() -> str:
 
 
 class Repository:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, session_id: str | None = None) -> None:
         self.db = db
+        self.session_id = session_id
+
+    def _task_where(self) -> tuple[str, tuple[str, ...]]:
+        if self.session_id is None:
+            return "id=?", ()
+        return "id=? AND session_id=?", (self.session_id,)
+
+    def _require_owned_task(self, conn: Any, task_id: str) -> None:
+        if self.session_id is None:
+            return
+        row = conn.execute(
+            "SELECT 1 FROM tasks WHERE id=? AND session_id=?",
+            (task_id, self.session_id),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Task {task_id} was not found")
 
     def one(self, table: str, item_id: str) -> dict[str, Any] | None:
         if table not in {"customers", "orders", "cases"}:
@@ -41,37 +57,42 @@ class Repository:
     def create_task(self, state: dict[str, Any]) -> None:
         safe_state = {k: v for k, v in state.items() if k != "api_key"}
         with self.db.connect() as conn:
-            conn.execute("""INSERT INTO tasks(id,user_request,planner_mode,provider,status,plan_json,state_json,created_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?)""", (state["task_id"], state["user_request"], state["planner_mode"], state.get("provider"),
-                state["status"], json.dumps(state.get("plan")), json.dumps(safe_state, default=str), state["created_at"], state["updated_at"]))
+            conn.execute("""INSERT INTO tasks(id,user_request,planner_mode,provider,session_id,status,plan_json,state_json,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?)""", (state["task_id"], state["user_request"], state["planner_mode"], state.get("provider"),
+                self.session_id, state["status"], json.dumps(state.get("plan")), json.dumps(safe_state, default=str), state["created_at"], state["updated_at"]))
 
     def save_task(self, state: dict[str, Any]) -> None:
         completed = now_iso() if state.get("status") in {"completed", "rejected", "failed"} else None
         safe_state = {k: v for k, v in state.items() if k != "api_key"}
         with self.db.connect() as conn:
-            conn.execute("""UPDATE tasks SET status=?,plan_json=?,state_json=?,final_response=?,report_path=?,customer_response=?,updated_at=?,completed_at=COALESCE(?,completed_at) WHERE id=?""",
+            where, scope = self._task_where()
+            conn.execute(f"""UPDATE tasks SET status=?,plan_json=?,state_json=?,final_response=?,report_path=?,customer_response=?,updated_at=?,completed_at=COALESCE(?,completed_at) WHERE {where}""",
                 (state["status"], json.dumps(state.get("plan")), json.dumps(safe_state, default=str), state.get("final_response"),
-                 state.get("generated_report_path"), state.get("customer_response"), state["updated_at"], completed, state["task_id"]))
+                 state.get("generated_report_path"), state.get("customer_response"), state["updated_at"], completed, state["task_id"], *scope))
 
     def save_step(self, task_id: str, step: dict[str, Any], output: Any = None, latency_ms: int | None = None, error: str | None = None) -> None:
         now = now_iso()
         with self.db.connect() as conn:
+            self._require_owned_task(conn, task_id)
             conn.execute("""INSERT INTO task_steps(task_id,step_id,tool_name,description,reason,tool_input_json,tool_output_json,status,requires_approval,started_at,completed_at,latency_ms,error_message)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(task_id,step_id) DO UPDATE SET tool_output_json=excluded.tool_output_json,status=excluded.status,completed_at=excluded.completed_at,latency_ms=excluded.latency_ms,error_message=excluded.error_message""",
             (task_id,step["step_id"],step["tool_name"],step.get("description"),step.get("reason"),json.dumps(step.get("inputs",{})),json.dumps(output,default=str) if output is not None else None,step["status"],int(step.get("requires_approval",False)),now,now if step["status"] in {"completed","failed","skipped","waiting_for_approval"} else None,latency_ms,error))
 
     def add_approval(self, task_id: str, step_id: str, decision: str, reason: str | None) -> None:
         with self.db.connect() as conn:
+            self._require_owned_task(conn, task_id)
             conn.execute("INSERT INTO approvals(task_id,step_id,decision,reason,decided_at) VALUES(?,?,?,?,?)", (task_id,step_id,decision,reason,now_iso()))
 
     def add_event(self, task_id: str, event_type: str, detail: str, step_id: str | None = None) -> None:
         with self.db.connect() as conn:
+            self._require_owned_task(conn, task_id)
             conn.execute("INSERT INTO tool_events(task_id,step_id,event_type,detail,created_at) VALUES(?,?,?,?,?)",
                          (task_id, step_id, event_type, detail, now_iso()))
 
     def get_task(self, task_id: str) -> dict[str, Any] | None:
+        where, scope = self._task_where()
         with self.db.connect() as conn:
-            row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+            row = conn.execute(f"SELECT * FROM tasks WHERE {where}", (task_id, *scope)).fetchone()
         if not row: return None
         result = dict(row)
         result["state"] = json.loads(result.get("state_json") or "{}")
@@ -88,6 +109,9 @@ class Repository:
 
     def search_tasks(self, **filters: Any) -> list[dict[str, Any]]:
         clauses, params = [], []
+        if self.session_id is not None:
+            clauses.append("session_id = ?")
+            params.append(self.session_id)
         for key in ("task_id","status"):
             if filters.get(key):
                 clauses.append(("id" if key == "task_id" else key) + " = ?"); params.append(filters[key])
@@ -115,3 +139,29 @@ class Repository:
             })
             results.append(item)
         return results
+
+    def count_tasks(self) -> int:
+        with self.db.connect() as conn:
+            if self.session_id is None:
+                row = conn.execute("SELECT COUNT(*) AS count FROM tasks").fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS count FROM tasks WHERE session_id=?",
+                    (self.session_id,),
+                ).fetchone()
+        return int(row["count"])
+
+    def prune_expired_demo_tasks(self, retention_hours: int) -> int:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=retention_hours)).isoformat()
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM tasks WHERE session_id IS NOT NULL AND updated_at < ?",
+                (cutoff,),
+            ).fetchall()
+            task_ids = [row["id"] for row in rows]
+            for task_id in task_ids:
+                conn.execute("DELETE FROM tool_events WHERE task_id=?", (task_id,))
+                conn.execute("DELETE FROM approvals WHERE task_id=?", (task_id,))
+                conn.execute("DELETE FROM task_steps WHERE task_id=?", (task_id,))
+                conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        return len(task_ids)

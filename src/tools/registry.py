@@ -20,8 +20,9 @@ from src.tools.task_history_search import execute as task_history_search
 
 
 class ToolRegistry:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, repo: Repository | None = None) -> None:
         self.db = db
+        self.repo = repo or Repository(db)
         self._tools: dict[str, ToolDefinition] = {}
 
     def register(self, tool: ToolDefinition) -> None:
@@ -47,12 +48,12 @@ class ToolRegistry:
     def execute(self, name: str, inputs: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
         tool = self.get(name)
         parsed = tool.input_schema.model_validate(inputs)
-        context = {**context, "db": self.db, "repo": Repository(self.db)}
+        context = {**context, "db": self.db, "repo": self.repo}
         return tool.function(parsed, context)
 
 
-def build_registry(db: Database) -> ToolRegistry:
-    registry = ToolRegistry(db)
+def build_registry(db: Database, repo: Repository | None = None) -> ToolRegistry:
+    registry = ToolRegistry(db, repo)
     specs = [
         ("customer_lookup","Retrieve a fictional customer record.",CustomerLookupInput,"low",False,customer_lookup),
         ("case_lookup","Retrieve a support or refund case.",CaseLookupInput,"low",False,case_lookup),

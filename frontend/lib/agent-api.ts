@@ -54,10 +54,31 @@ export interface ToolCapability {
   requires_approval: boolean;
 }
 
+export interface GuidedDemoTask {
+  id: string;
+  title: string;
+  user_request: string;
+  expected_tools: string[];
+  demonstrates_approval: boolean;
+  expected_status: 'completed' | 'waiting_for_approval' | 'failed';
+}
+
+export interface HistoryCapability {
+  scope: 'demo_session' | 'persistent_local';
+  max_results: number;
+  retention_hours: number | null;
+}
+
 export interface Capabilities {
   app_mode: AppMode;
+  demo_mode_available: boolean;
+  free_form_task_policy: 'supported_fictional_data' | 'full_supported_workflows';
+  guided_demo_tasks: GuidedDemoTask[];
   planner_modes: PlannerMode[];
   providers: ProviderCapability[];
+  provider_controls_available: boolean;
+  provider_api_key_allowed: boolean;
+  history: HistoryCapability;
   tools: ToolCapability[];
   approval_required_tools: string[];
 }
@@ -258,6 +279,7 @@ export class AgentApiError extends Error {
 }
 
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000';
+const DEMO_SESSION_STORAGE_KEY = 'conductor_demo_session_id';
 
 const HTTP_ERROR_MESSAGES: Readonly<Record<number, string>> = {
   400: 'The agent API rejected the request.',
@@ -270,6 +292,15 @@ const HTTP_ERROR_MESSAGES: Readonly<Record<number, string>> = {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '');
+}
+
+function demoSessionId(): string | null {
+  if (typeof window === 'undefined') return null;
+  const existing = window.sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY);
+  if (existing) return existing;
+  const created = crypto.randomUUID().replaceAll('-', '');
+  window.sessionStorage.setItem(DEMO_SESSION_STORAGE_KEY, created);
+  return created;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -394,8 +425,10 @@ export class AgentApiClient {
     },
   ): Promise<T> {
     const headers = new Headers({ Accept: 'application/json' });
+    const sessionId = demoSessionId();
 
     if (body !== undefined) headers.set('Content-Type', 'application/json');
+    if (sessionId) headers.set('X-Demo-Session-ID', sessionId);
     if (options?.providerApiKey) {
       headers.set('X-Provider-API-Key', options.providerApiKey);
     }

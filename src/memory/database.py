@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS refund_policies (
 CREATE TABLE IF NOT EXISTS sla_rules (priority TEXT PRIMARY KEY, hours INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY, user_request TEXT NOT NULL, planner_mode TEXT NOT NULL,
-  provider TEXT, status TEXT NOT NULL, plan_json TEXT, state_json TEXT,
+  provider TEXT, session_id TEXT, status TEXT NOT NULL, plan_json TEXT, state_json TEXT,
   final_response TEXT, report_path TEXT, customer_response TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT
 );
@@ -68,6 +68,10 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)")}
+            if "session_id" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN session_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id)")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -82,4 +86,3 @@ class Database:
             raise
         finally:
             conn.close()
-
