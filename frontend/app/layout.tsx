@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Conductor — Agent Orchestration Prototype',
-  description: 'An isolated visual prototype for a human-governed agent execution score.',
+  title: 'Conductor — Mission Orchestration Canvas',
+  description: 'A human-governed workspace for planning, tool execution, approvals, and operational outcomes.',
 };
 
 export default function RootLayout({
