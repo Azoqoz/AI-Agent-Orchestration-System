@@ -207,7 +207,6 @@ export default function Home() {
     <main className="conductor-shell">
       <header className="conductor-header">
         <div className="wordmark">
-          <span className="conductor-mark" aria-hidden="true"><i /><i /><i /></span>
           <div><strong>Conductor</strong><small>Mission orchestration canvas</small></div>
         </div>
         <div className="mode-switch" aria-label="Workspace mode">

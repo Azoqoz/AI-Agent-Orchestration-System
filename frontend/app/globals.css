@@ -47,14 +47,9 @@ button:disabled { cursor: not-allowed; opacity: 0.52; }
   min-height: 84px;
   padding: 0 4vw;
 }
-.wordmark { align-items: center; display: flex; gap: 14px; }
+.wordmark { align-items: center; display: flex; }
 .wordmark strong { display: block; font-size: 1rem; letter-spacing: .15em; text-transform: uppercase; }
 .wordmark small { color: var(--stone); display: block; font-size: .79rem; margin-top: 2px; }
-.conductor-mark { align-items: end; display: flex; gap: 3px; height: 28px; width: 28px; }
-.conductor-mark i { background: var(--amber); display: block; width: 6px; }
-.conductor-mark i:nth-child(1) { height: 35%; }
-.conductor-mark i:nth-child(2) { height: 100%; }
-.conductor-mark i:nth-child(3) { height: 63%; }
 .mode-switch { align-items: center; color: var(--stone-dark); display: flex; font-size: .82rem; gap: 6px; }
 .mode-switch button { background: none; border: 0; border-bottom: 2px solid transparent; color: inherit; cursor: pointer; padding: 8px 12px; }
 .mode-switch button:disabled { cursor: not-allowed; }
