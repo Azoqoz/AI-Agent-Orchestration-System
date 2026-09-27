@@ -1149,6 +1149,3 @@ This project is licensed under the MIT License.
 ## Author
 
 Developed by [Azoqoz](https://github.com/Azoqoz).
-
-**Live Application:**  
-https://ai-agent-orchestration-system.vercel.app
